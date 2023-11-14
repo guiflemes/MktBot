@@ -2,9 +2,11 @@ package server
 
 import (
 	"log"
-	"marketingBot/fb/handlers"
+	fb "marketingBot/fb/handlers"
 	"os"
 	"time"
+
+	dash "marketingBot/dashboard/handlers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -15,13 +17,16 @@ func RunHttpServer(addr string) {
 	app := fiber.New()
 	setMiddlewares(app)
 
-	fbApp := handlers.NewFBHttpApp()
+	fbApp := fb.NewFBHttpApp()
+	dashApp := dash.NewdashHttpApp()
 
-	apiV1 := app.Group("api/v1/facebook")
+	apiV1 := app.Group("api/v1")
 
-	apiV1.Post("/webhook", fbApp.HandleWebhook)
-	apiV1.Get("/webhook", fbApp.HandleVerification)
-	apiV1.Post("/upload", fbApp.HandleUploadImage)
+	apiV1.Post("/facebook/webhook", fbApp.HandleWebhook)
+	apiV1.Get("/facebook/webhook", fbApp.HandleVerification)
+	apiV1.Post("/facebook/upload", fbApp.HandleUploadImage)
+
+	apiV1.Get("/dash/clicks", dashApp.HandleClickCount)
 
 	log.Println("Starting HTTP server", addr)
 	app.Listen(addr)
