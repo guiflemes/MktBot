@@ -12,12 +12,19 @@ import (
 )
 
 type SimpleMessageUC struct {
-	messageFlow  *MessageFlow
-	postbackFlow *MessageFlow
+	messageFlow    *MessageFlow
+	postbackFlow   *MessageFlow
+	postbackAction []func(recipientID string, postback *models.Postback)
 }
 
 func NewSimpleMessageUC() *SimpleMessageUC {
-	return &SimpleMessageUC{messageFlow: NewMessageFlow(), postbackFlow: NewPostbackFlow()}
+	return &SimpleMessageUC{
+		messageFlow:  NewMessageFlow(),
+		postbackFlow: NewPostbackFlow(),
+		postbackAction: []func(recipientID string, postback *models.Postback){
+			collectFbButtonMetrics,
+		},
+	}
 }
 
 func (s *SimpleMessageUC) HandleWebHookRequest(r models.WehbookReq) error {
@@ -33,6 +40,12 @@ func (s *SimpleMessageUC) HandleWebHookRequest(r models.WehbookReq) error {
 	}
 
 	return nil
+}
+
+func (s *SimpleMessageUC) executePosbackAction(recipientID string, postback *models.Postback) {
+	for _, fn := range s.postbackAction {
+		go fn(recipientID, postback)
+	}
 }
 
 func (s *SimpleMessageUC) handleWebHookRequestEntry(we models.Entry) error {
@@ -79,7 +92,7 @@ func (s *SimpleMessageUC) handlerPostback(recipientID string, postbackReq *model
 		return fmt.Errorf("error building flow: %w", err)
 	}
 
-	collectFbButtonMetrics(recipientID, postbackReq)
+	s.executePosbackAction(recipientID, postbackReq)
 
 	return adapters.SendRespose(msgRequest)
 }
@@ -105,7 +118,7 @@ func (s *SimpleMessageUC) handleMessage(recipientID, msgText string) error {
 
 func collectFbButtonMetrics(recipientID string, postbackReq *models.Postback) {
 	repo := dash.ButtonStatisticsRepoMemory
-	go repo.Save(dash.ButtonClick{
+	repo.Save(dash.ButtonClick{
 		Title:      postbackReq.Title,
 		Key:        postbackReq.Payload,
 		Timestamp:  postbackReq.Timestamp,
