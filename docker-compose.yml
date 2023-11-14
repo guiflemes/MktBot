@@ -1,0 +1,11 @@
+version: '3.9'
+services:
+  mktbot:
+    build:
+      context: .
+    restart: always
+    volumes:
+      - ./:/app
+    ports:
+      - 8000:8000
+      - 443:8000
