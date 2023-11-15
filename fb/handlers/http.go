@@ -12,10 +12,6 @@ import (
 )
 
 type (
-	Authenticator interface {
-		Auth(c *fiber.Ctx) error
-	}
-
 	MessageHandler interface {
 		HandleWebHookRequest(models.WehbookReq) error
 	}
@@ -26,7 +22,6 @@ type (
 )
 
 type FBHttpApp struct {
-	auth       Authenticator
 	msgHandler MessageHandler
 	uplodImage func(url string) (string, error)
 }
@@ -34,7 +29,6 @@ type FBHttpApp struct {
 func NewFBHttpApp() *FBHttpApp {
 	graph := adapters.NewGrapApi()
 	return &FBHttpApp{
-		auth:       NewPageAcesssAuth(),
 		msgHandler: service.NewSimpleMessageUC(),
 		uplodImage: graph.UploadImage,
 	}
