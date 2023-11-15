@@ -18,4 +18,4 @@ down:
 	docker-compose down --remove-orphans
 
 test:
-	docker-compose exec mktbot go test -v
+	docker-compose exec mktbot go test -v ./...
