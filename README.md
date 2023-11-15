@@ -40,7 +40,3 @@ Ensure you have the following environment variables in your `.env` file:
 - `FB_PAGE_ACCESS_TOKEN`: Your Facebook Page Access Token.
 - `FB_VERIFY_TOKEN`: Your Facebook Verify Token.
 - `PORT`: The port on which the app will run.
-
-## Contributing
-
-Feel free to contribute to this project. Submit issues or pull requests, and let's make this bot even better together!
