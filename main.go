@@ -1,7 +1,10 @@
 package main
 
-import "marketingBot/server"
+import (
+	"marketingBot/server"
+	"marketingBot/settings"
+)
 
 func main() {
-	server.RunHttpServer(":8000")
+	server.RunHttpServer(settings.GETENV("PORT"))
 }
