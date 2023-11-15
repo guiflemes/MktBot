@@ -9,8 +9,6 @@ import (
 	"sync"
 )
 
-// TODO arrumar o replace name, como salvar as metricas
-
 func replacePlaceholders(templete string, replacements map[string]string) string {
 	re := regexp.MustCompile(`{([^}]+)}`)
 	return re.ReplaceAllStringFunc(templete, func(math string) string {
