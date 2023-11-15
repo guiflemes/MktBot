@@ -1,50 +1,72 @@
 package service
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"marketingBot/fb/adapters"
 	"marketingBot/fb/models"
-	"strings"
 	"time"
 
 	dash "marketingBot/dashboard/adapters"
 )
 
-type SenderCacher interface {
-	GetSenderName(senderID string, fetchGeSanderName func(sendId string) (string, error)) (string, error)
-}
-type GraphApiClient interface {
-	GetSenderName(senderID string) (string, error)
-	SendRespose(msgRequest models.SendMessageRequest) error
-}
+type (
+	HandlerDirectMsg interface {
+		Handle(sender models.Sender, msg *models.Message) error
+	}
+
+	HandlerPostBackMsg interface {
+		Handle(sender models.Sender, postbackReq *models.Postback) error
+	}
+
+	HandleTemplateMsg interface {
+		Handler(sender models.Sender, temp *models.MessagingTemplate)
+	}
+
+	SenderCacher interface {
+		GetSenderName(senderID string, fetchGeSanderName func(sendId string) (string, error)) (string, error)
+	}
+
+	GraphApiSender interface {
+		GetSenderName(senderID string) (string, error)
+	}
+
+	GraphApiClientResponse interface {
+		SendRespose(msgRequest models.SendMessageRequest) error
+	}
+)
 
 type SimpleMessageUC struct {
-	messageFlow    *MessageFlow
-	postbackFlow   *MessageFlow
-	postbackAction []func(recipientID string, postback PostBackMetric)
-	senderCache    SenderCacher
-	graphApi       GraphApiClient
-	templateAction []func(recipientID string, template *models.MessagingTemplate)
+	senderCache     SenderCacher
+	graphApi        GraphApiSender
+	templateHandler HandleTemplateMsg
+	postbackHandler HandlerPostBackMsg
+	directHandler   HandlerDirectMsg
 }
 
 func NewSimpleMessageUC() *SimpleMessageUC {
 
 	flow := SampleBotFlowMock()
 	cache := adapters.NewSenderCache()
+	graphAPi := adapters.NewGrapApi()
 
 	return &SimpleMessageUC{
-		messageFlow:  flow.directFlow,
-		postbackFlow: flow.postbackFlow,
-		postbackAction: []func(recipientID string, postback PostBackMetric){
-			collectFbButtonMetrics,
-		},
 		senderCache: cache,
-		graphApi:    adapters.NewGrapApi(),
-		templateAction: []func(recipientID string, temp *models.MessagingTemplate){
+		graphApi:    graphAPi,
+		templateHandler: &TemplateHandler{templateAction: []func(recipientID string, template *models.MessagingTemplate){
 			collecFbCoupomRevelMetric,
+		}},
+		postbackHandler: &PostbackHandler{
+			postbackAction: []func(recipientID string, postback PostBackMetric){
+				collectFbButtonMetrics,
+			},
+			postbackFlow: flow.postbackFlow,
+			graphApi:     graphAPi,
+		},
+		directHandler: &DirectHandler{
+			messageFlow: flow.directFlow,
+			graphApi:    graphAPi,
 		},
 	}
 }
@@ -62,12 +84,6 @@ func (s *SimpleMessageUC) HandleWebHookRequest(r models.WehbookReq) error {
 	}
 
 	return nil
-}
-
-func (s *SimpleMessageUC) executePosbackAction(sender models.Sender, postback PostBackMetric) {
-	for _, fn := range s.postbackAction {
-		go fn(sender.ID, postback)
-	}
 }
 
 func (s *SimpleMessageUC) handleWebHookRequestEntry(we models.Entry) error {
@@ -98,139 +114,18 @@ func (s *SimpleMessageUC) handleWebHookRequestEntry(we models.Entry) error {
 	m.Sender.Name = senderName
 
 	if m.Postback != nil {
-		return s.handlerPostback(m.Sender, m.Postback)
+		return s.postbackHandler.Handle(m.Sender, m.Postback)
 	}
 
 	if m.Message != nil {
-		return s.handleMessage(m.Sender, m.Message)
+		return s.directHandler.Handle(m.Sender, m.Message)
 	}
 
 	if m.Template != nil {
-		s.handlerTemplate(m.Sender, m.Template)
+		s.templateHandler.Handler(m.Sender, m.Template)
 	}
 
 	return nil
-}
-
-func (s *SimpleMessageUC) handlerTemplate(sender models.Sender, temp *models.MessagingTemplate) {
-	for _, fn := range s.templateAction {
-		go fn(sender.ID, temp)
-	}
-}
-
-func (s *SimpleMessageUC) handlerPostback(sender models.Sender, postbackReq *models.Postback) error {
-	if s.postbackFlow == nil {
-		return errors.New("postbackFlow cannot be nil")
-	}
-
-	var option models.OptionButtonPayload
-
-	if err := json.Unmarshal([]byte(postbackReq.Payload), &option); err != nil {
-		log.Println("failed to unmarshal postback Payload : ", err)
-		return fmt.Errorf("failed to unmarshal postback Payload : %w", err)
-	}
-
-	msgRequest, err := s.postbackFlow.Buid(sender, option.TargetMessageID)
-
-	if err != nil {
-		return fmt.Errorf("error building flow: %w", err)
-	}
-
-	s.executePosbackAction(sender, PostBackMetric{
-		Title:     postbackReq.Title,
-		Payload:   option,
-		Timestamp: postbackReq.Timestamp,
-	})
-
-	return s.graphApi.SendRespose(msgRequest)
-}
-
-func (s *SimpleMessageUC) handleMessage(sender models.Sender, msg *models.Message) error {
-	if s.messageFlow == nil {
-		return errors.New("messageFlow cannot be nil")
-	}
-
-	msgText := strings.TrimSpace(msg.Text)
-	msgRequest, err := s.messageFlow.Buid(sender, msgText)
-
-	if err != nil {
-		log.Println("error building flow ", err)
-		return fmt.Errorf("error building flow: %w", err)
-	}
-
-	return s.graphApi.SendRespose(msgRequest)
-
-}
-
-type TemplateHandler struct {
-	templateAction []func(recipientID string, template *models.MessagingTemplate)
-}
-
-func (h *TemplateHandler) Handler(sender models.Sender, temp *models.MessagingTemplate) {
-	for _, fn := range h.templateAction {
-		go fn(sender.ID, temp)
-	}
-}
-
-type MessageHandler struct {
-	messageFlow *MessageFlow
-	graphApi    GraphApiClient
-}
-
-func (h *MessageHandler) Handle(sender models.Sender, msg *models.Message) error {
-	if h.messageFlow == nil {
-		return errors.New("messageFlow cannot be nil")
-	}
-
-	msgText := strings.TrimSpace(msg.Text)
-	msgRequest, err := h.messageFlow.Buid(sender, msgText)
-
-	if err != nil {
-		log.Println("error building flow ", err)
-		return fmt.Errorf("error building flow: %w", err)
-	}
-
-	return h.graphApi.SendRespose(msgRequest)
-
-}
-
-type PostbackHandler struct {
-	postbackAction []func(recipientID string, postback PostBackMetric)
-	postbackFlow   *MessageFlow
-	graphApi       GraphApiClient
-}
-
-func (h *PostbackHandler) executePosbackAction(sender models.Sender, postback PostBackMetric) {
-	for _, fn := range h.postbackAction {
-		go fn(sender.ID, postback)
-	}
-}
-
-func (h *PostbackHandler) Handle(sender models.Sender, postbackReq *models.Postback) error {
-	if h.postbackFlow == nil {
-		return errors.New("postbackFlow cannot be nil")
-	}
-
-	var option models.OptionButtonPayload
-
-	if err := json.Unmarshal([]byte(postbackReq.Payload), &option); err != nil {
-		log.Println("failed to unmarshal postback Payload : ", err)
-		return fmt.Errorf("failed to unmarshal postback Payload : %w", err)
-	}
-
-	msgRequest, err := h.postbackFlow.Buid(sender, option.TargetMessageID)
-
-	if err != nil {
-		return fmt.Errorf("error building flow: %w", err)
-	}
-
-	h.executePosbackAction(sender, PostBackMetric{
-		Title:     postbackReq.Title,
-		Payload:   option,
-		Timestamp: postbackReq.Timestamp,
-	})
-
-	return h.graphApi.SendRespose(msgRequest)
 }
 
 type PostBackMetric struct {
