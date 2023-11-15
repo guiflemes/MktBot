@@ -32,10 +32,11 @@ type FBHttpApp struct {
 }
 
 func NewFBHttpApp() *FBHttpApp {
+	graph := adapters.NewGrapApi()
 	return &FBHttpApp{
 		auth:       NewPageAcesssAuth(),
 		msgHandler: service.NewSimpleMessageUC(),
-		uplodImage: adapters.UploadImage,
+		uplodImage: graph.UploadImage,
 	}
 }
 
@@ -53,17 +54,10 @@ func (fb *FBHttpApp) HandleVerification(c *fiber.Ctx) error {
 }
 
 func (fb *FBHttpApp) HandleWebhook(c *fiber.Ctx) error {
-	// err := fb.auth.Auth(c)
-
-	// if err != nil {
-	// 	log.Println("unauthorized", err)
-	// 	return c.Status(http.StatusUnauthorized).SendString("unauthorized")
-	// }
 
 	var webhookReq models.WehbookReq
 
 	err := c.BodyParser(&webhookReq)
-
 	if err != nil {
 		log.Println("body parser request", err)
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Failed to body parser request"})
@@ -76,7 +70,7 @@ func (fb *FBHttpApp) HandleUploadImage(c *fiber.Ctx) error {
 
 	var imageReq ImageRequest
 
-	if err := c.BodyParser(imageReq); err != nil {
+	if err := c.BodyParser(&imageReq); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Failed to body parser request"})
 	}
 

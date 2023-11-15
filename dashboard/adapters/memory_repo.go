@@ -6,52 +6,100 @@ import (
 	"sync"
 )
 
-var ButtonStatisticsRepoMemory = NewButtonStatisticsRepoMemory()
+var StatisticsRepoMemory = NewStatisticsRepoMemory()
 
 type ButtonClick struct {
-	Title      string
-	Key        string
-	Timestamp  int
+	Title       string
+	QuestionKey string
+	OptionKey   string
+	Timestamp   int
+	CustomerID  string
+	Platform    string
+}
+
+type CouponRevel struct {
+	Code       string
 	CustomerID string
 	Platform   string
+	Timestamp  int64
 }
 
-type buttonStatisticsRepoMemory struct {
-	locker sync.RWMutex
-	data   map[string][]ButtonClick
+func (c *CouponRevel) ID() string {
+	return c.Platform + "_" + c.Code
 }
 
-func NewButtonStatisticsRepoMemory() *buttonStatisticsRepoMemory {
-	return &buttonStatisticsRepoMemory{
-		data: make(map[string][]ButtonClick),
+type statisticsRepoMemory struct {
+	locker       sync.RWMutex
+	clicks       map[string][]ButtonClick
+	couponRevels map[string][]CouponRevel
+}
+
+func NewStatisticsRepoMemory() *statisticsRepoMemory {
+	return &statisticsRepoMemory{
+		clicks:       make(map[string][]ButtonClick),
+		couponRevels: make(map[string][]CouponRevel),
 	}
 }
 
-func (repo *buttonStatisticsRepoMemory) Save(click ButtonClick) error {
+func (repo *statisticsRepoMemory) SaveRevels(revel CouponRevel) error {
 	repo.locker.Lock()
 	defer repo.locker.Unlock()
 
-	id := repo.makeID(click.Platform, click.Key)
-
-	buttons, ok := repo.data[id]
+	revels, ok := repo.couponRevels[revel.ID()]
 
 	if !ok {
-		repo.data[id] = []ButtonClick{click}
+		repo.couponRevels[revel.ID()] = []CouponRevel{revel}
+		fmt.Println("save metrics revel: ", revel.ID())
+		return nil
+	}
+
+	repo.couponRevels[revel.ID()] = append(revels, revel)
+
+	return nil
+}
+
+func (repo *statisticsRepoMemory) SaveClicks(click ButtonClick) error {
+	repo.locker.Lock()
+	defer repo.locker.Unlock()
+
+	id := repo.makeClickID(click.Platform, click.QuestionKey, click.OptionKey)
+	buttons, ok := repo.clicks[id]
+
+	if !ok {
+		repo.clicks[id] = []ButtonClick{click}
 		fmt.Println("save metrics: ", id)
 		return nil
 	}
 
-	repo.data[id] = append(buttons, click)
+	repo.clicks[id] = append(buttons, click)
 
 	return nil
 
 }
 
-func (repo *buttonStatisticsRepoMemory) get(key string) []ButtonClick {
+func (repo *statisticsRepoMemory) GetRevelCount(plataform, code string) int {
+	return len(repo.get_revels(plataform + "_" + code))
+}
+
+func (repo *statisticsRepoMemory) get_revels(key string) []CouponRevel {
 	repo.locker.RLock()
 	defer repo.locker.RUnlock()
 
-	clicks, ok := repo.data[key]
+	revels, ok := repo.couponRevels[key]
+
+	if !ok {
+		return []CouponRevel{}
+	}
+
+	return revels
+
+}
+
+func (repo *statisticsRepoMemory) get_clicks(key string) []ButtonClick {
+	repo.locker.RLock()
+	defer repo.locker.RUnlock()
+
+	clicks, ok := repo.clicks[key]
 
 	if !ok {
 		return []ButtonClick{}
@@ -61,14 +109,14 @@ func (repo *buttonStatisticsRepoMemory) get(key string) []ButtonClick {
 
 }
 
-func (repo *buttonStatisticsRepoMemory) makeID(plataform, key string) string {
-	id := fmt.Sprintf("%s_%s", plataform, key)
+func (repo *statisticsRepoMemory) makeClickID(plataform, questionKey, optionKey string) string {
+	id := fmt.Sprintf("%s_%s_%s", plataform, questionKey, optionKey)
 	return strings.TrimSpace(id)
 }
 
-func (repo *buttonStatisticsRepoMemory) GetClickCount(plataform, key string) int {
-	id := repo.makeID(plataform, key)
-	clicks := repo.get(id)
+func (repo *statisticsRepoMemory) GetClickCount(plataform, questionKey, optionKey string) int {
+	id := repo.makeClickID(plataform, questionKey, optionKey)
+	clicks := repo.get_clicks(id)
 
 	distinct := make(map[string]struct{})
 

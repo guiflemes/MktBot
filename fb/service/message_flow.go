@@ -1,94 +1,66 @@
 package service
 
 import (
-	"errors"
+	"encoding/json"
+	"fmt"
+	"log"
 	"marketingBot/fb/models"
+	"regexp"
 	"sync"
 )
 
+// TODO arrumar o replace name, como salvar as metricas
+
+func replacePlaceholders(templete string, replacements map[string]string) string {
+	re := regexp.MustCompile(`{([^}]+)}`)
+	return re.ReplaceAllStringFunc(templete, func(math string) string {
+		key := math[1 : len(math)-1]
+		if value, ok := replacements[key]; ok {
+			return value
+		}
+
+		return math
+	})
+}
+
 type MessageFlow struct {
 	lockFlow   sync.RWMutex
-	flow       map[string]models.Message
-	defaultMsg models.Message
+	flow       map[string]func(sender models.Sender) models.Message
+	defaultMsg func(sender models.Sender) models.Message
 }
 
-func NewPostbackFlow() *MessageFlow {
-	flow := &MessageFlow{flow: make(map[string]models.Message)}
-	flow.Add("are_you_a_dog_yes", models.Message{Attachment: &models.Attachment{
-		Type: "template",
-		Payload: models.PayloadCoupon{
-			TemplateType: "coupon",
-			Title:        "10% off everything",
-			CouponCode:   "10PERCENT",
-			Payload:      "coupon_10_off",
-		},
-	}}).
-		Add("are_you_a_dog_no", models.Message{Attachment: &models.Attachment{
-			Type: "template",
-			Payload: models.PayloadMedia{
-				TemplateType: "media",
-				Elements: []models.MediaElement{
-					{
-						MediaType:    "image",
-						AttachmentId: "342132335170214",
-					},
-				},
-			},
-		}})
-	return flow
-}
-
-func NewMessageFlow() *MessageFlow {
-	flow := &MessageFlow{flow: make(map[string]models.Message)}
-	flow.Add("hello", models.Message{Text: "world"}).
-		Add("indio", models.Message{Text: "parana"}).
-		Add("rudens", models.Message{Attachment: &models.Attachment{
-			Type: "template",
-			Payload: models.PayloadButtons{
-				TemplateType: "button",
-				Text:         "Are you a dog?",
-				Buttons: []models.Button{
-					{
-						Type:    "postback",
-						Title:   "Yes",
-						Payload: "are_you_a_dog_yes",
-					},
-					{
-						Type:    "postback",
-						Title:   "No",
-						Payload: "are_you_a_dog_no",
-					},
-				},
-			},
-		}})
-	return flow
-}
-
-func (s *MessageFlow) DefaultMessage() models.Message {
-	if s.defaultMsg == (models.Message{}) {
-		return models.Message{Text: "what can i do for you?"}
+func (s *MessageFlow) DefaultMessageMaker() func(s models.Sender) models.Message {
+	if s.defaultMsg == nil {
+		return func(s models.Sender) models.Message {
+			return models.Message{Text: "what can i do for you?"}
+		}
 	}
 
 	return s.defaultMsg
 }
 
-func (s *MessageFlow) SetDefaultMessage(msg models.Message) *MessageFlow {
-	s.defaultMsg = msg
+func (s *MessageFlow) SetDefaultMessageMaker(maker func(sender models.Sender) models.Message) *MessageFlow {
+	s.defaultMsg = maker
 	return s
 }
 
-func (s *MessageFlow) Add(expectMsg string, message models.Message) *MessageFlow {
+func (s *MessageFlow) Add(expectMsg string, messageMaker func(sender models.Sender) models.Message) *MessageFlow {
 	s.lockFlow.Lock()
 	defer s.lockFlow.Unlock()
-	s.flow[expectMsg] = message
+	s.flow[expectMsg] = messageMaker
 	return s
 }
 
-func (s *MessageFlow) Get(expectMsg string) (models.Message, bool) {
+func (s *MessageFlow) Get(expectMsg string) (func(sender models.Sender) models.Message, bool) {
 	s.lockFlow.RLock()
 	defer s.lockFlow.RUnlock()
-	msg, ok := s.flow[expectMsg]
-	return msg, ok
+
+	maker, ok := s.flow[expectMsg]
+
+	if !ok {
+		return nil, false
+	}
+	return maker, true
 }
 
 func (s *MessageFlow) IsEmpty() bool {
@@ -97,21 +69,310 @@ func (s *MessageFlow) IsEmpty() bool {
 	return len(s.flow) == 0
 }
 
-func (s *MessageFlow) Buid(recipientID, inputMsg string) (models.SendMessageRequest, error) {
+func (s *MessageFlow) Buid(sender models.Sender, inputMsg string) (models.SendMessageRequest, error) {
 
-	if s.IsEmpty() {
-		return models.SendMessageRequest{}, errors.New("empty flow")
-	}
-
-	message, exists := s.Get(inputMsg)
+	messageMaker, exists := s.Get(inputMsg)
 
 	if !exists {
-		message = s.DefaultMessage()
+		messageMaker = s.DefaultMessageMaker()
 	}
+
+	message := messageMaker(sender)
 
 	return models.SendMessageRequest{
 		MessagingType: "RESPONSE",
-		RecipientID:   models.MessageRecipient{ID: recipientID},
+		RecipientID:   models.MessageRecipient{ID: sender.ID},
 		Message:       message,
 	}, nil
+}
+
+type ButtonOption struct {
+	Text         string `json:"text"`
+	Key          string `json:"key"`
+	TargetCardID string `json:"target_card_id"`
+}
+
+type ButtonTemplate struct {
+	Text    string         `json:"text"`
+	Key     string         `json:"key"`
+	Options []ButtonOption `json:"options"`
+}
+
+type ImageTemplate struct {
+	ImageURL string `json:"image_url,omitempty"`
+	ImageID  string `json:"image_id,omitempty"`
+}
+
+type CouponTemplate struct {
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	Code     string `json:"code"`
+	Key      string `json:"key"`
+}
+
+type Card struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Initial     bool   `json:"initial"`
+	ExpectedMsg string `json:"expected_msg"`
+	Template    any    `json:"template"`
+}
+
+type Relationship struct {
+	SourceCardID      string `json:"source_card_id"`
+	TargetCardID      string `json:"target_card_id"`
+	RelationshipType  string `json:"relationship_type"`
+	AdditionalDetails string `json:"additional_details"`
+}
+
+type Flow struct {
+	Name          string          `json:"name"`
+	Key           string          `json:"key"`
+	Cards         map[string]Card `json:"cards"`
+	Relationships []Relationship  `json:"relationships"`
+	lock          sync.RWMutex
+}
+
+type BotFlow struct {
+	postbackFlow *MessageFlow
+	directFlow   *MessageFlow
+}
+
+func MessageFlowBuilder(flow *Flow) (*BotFlow, error) {
+	msgMaker := NewMessageMaker()
+	msgMaker.SetMaker("button", ButtonMaker)
+	msgMaker.SetMaker("image", ImageMaker)
+	msgMaker.SetMaker("coupon", CouponMaker)
+
+	flow.lock.RLock()
+	defer flow.lock.RUnlock()
+
+	postbackFlow := &MessageFlow{flow: make(map[string]func(sender models.Sender) models.Message)}
+	messageFlow := &MessageFlow{flow: make(map[string]func(sender models.Sender) models.Message)}
+
+	for _, rel := range flow.Relationships {
+		fmt.Println("postback")
+		postback := flow.Cards[rel.TargetCardID]
+		postbackMaker, err := msgMaker.Make(postback)
+
+		if err != nil {
+			log.Println(err)
+			return nil, err
+		}
+		postbackFlow.Add(rel.TargetCardID, postbackMaker)
+		delete(flow.Cards, rel.TargetCardID)
+	}
+
+	for _, card := range flow.Cards {
+		msgMaker, err := msgMaker.Make(card)
+
+		fmt.Println("direcet")
+
+		if err != nil {
+			log.Println(err)
+			return nil, err
+		}
+
+		if card.Initial {
+			messageFlow.SetDefaultMessageMaker(msgMaker)
+			continue
+		}
+
+		messageFlow.Add(card.ExpectedMsg, msgMaker)
+	}
+
+	return &BotFlow{postbackFlow: postbackFlow, directFlow: messageFlow}, nil
+
+}
+
+type messageMaker struct {
+	makers map[string]func(template []byte) (func(models.Sender) models.Message, error)
+	lock   sync.RWMutex
+}
+
+func NewMessageMaker() *messageMaker {
+	return &messageMaker{
+		makers: make(map[string]func(template []byte) (func(models.Sender) models.Message, error)),
+	}
+}
+
+func (m *messageMaker) SetMaker(makeType string, maker func(template []byte) (func(models.Sender) models.Message, error)) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.makers[makeType] = maker
+}
+
+func (m *messageMaker) Make(card Card) (func(models.Sender) models.Message, error) {
+	m.lock.RLock()
+	defer m.lock.RLock()
+
+	template_json, err := json.Marshal(card.Template)
+	if err != nil {
+		log.Println("Failed to marshal template : ", err)
+		return nil, fmt.Errorf("failed to marshal template : %w", err)
+	}
+
+	maker, ok := m.makers[card.Type]
+	if !ok {
+		log.Println("no card type found")
+		return nil, fmt.Errorf("no card type %s found", card.Type)
+	}
+
+	return maker(template_json)
+}
+
+func CouponMaker(template []byte) (func(models.Sender) models.Message, error) {
+	var coupon CouponTemplate
+
+	if err := json.Unmarshal(template, &coupon); err != nil {
+		return nil, err
+	}
+
+	return func(s models.Sender) models.Message {
+		return models.Message{Attachment: &models.Attachment{
+			Type: "template",
+			Payload: models.PayloadCoupon{
+				TemplateType: "coupon",
+				Title:        coupon.Title,
+				Subtitle:     coupon.Subtitle,
+				CouponCode:   coupon.Code,
+				Payload:      coupon.Key,
+			},
+		}}
+	}, nil
+}
+
+func ImageMaker(template []byte) (func(models.Sender) models.Message, error) {
+	var image ImageTemplate
+
+	if err := json.Unmarshal(template, &image); err != nil {
+		return nil, err
+	}
+
+	return func(s models.Sender) models.Message {
+		return models.Message{Attachment: &models.Attachment{
+			Type: "template",
+			Payload: models.PayloadMedia{
+				TemplateType: "media",
+				Elements: []models.MediaElement{
+					{
+						MediaType:    "image",
+						AttachmentId: image.ImageID,
+					},
+				},
+			},
+		}}
+	}, nil
+}
+
+func ButtonMaker(template []byte) (func(models.Sender) models.Message, error) {
+	var button ButtonTemplate
+
+	if err := json.Unmarshal(template, &button); err != nil {
+		return nil, err
+	}
+
+	return func(s models.Sender) models.Message {
+		var buttons []models.Button
+
+		for _, option := range button.Options {
+			optionPayload := models.OptionButtonPayload{
+				TargetMessageID: option.TargetCardID,
+				QuestionKey:     button.Key,
+				OptionKey:       option.Key,
+			}
+
+			payload, _ := json.Marshal(optionPayload)
+			buttons = append(buttons, models.Button{
+				Type:    "postback",
+				Title:   option.Text,
+				Payload: string(payload),
+			})
+		}
+
+		return models.Message{
+			Attachment: &models.Attachment{
+				Type: "template",
+				Payload: models.PayloadButtons{
+					TemplateType: "button",
+					Text:         replacePlaceholders(button.Text, map[string]string{"name": s.Name}),
+					Buttons:      buttons,
+				},
+			},
+		}
+	}, nil
+}
+
+func SampleBotFlowMock() *BotFlow {
+	mock := `{
+		"name": "SampleFlow",
+		"key": "sample_flow_key",
+		"cards": {
+		  "buttonCard1": {
+			"id": "buttonCard1",
+			"type": "button",
+			"initial": true,
+			"expected_msg": "",
+			"template": {
+			  "key": "welcome_demo",
+			  "text": "Welcome to the demo promotional flow {name}! Are you interested in our coupon",
+			  "options": [
+				{"text": "Yes! Show me coupon", "target_card_id": "couponCard", "key": "yes"},
+				{"text": "No, thanks", "target_card_id": "imageCard", "key": "no"}
+			  ]
+			}
+		  },
+		  "imageCard": {
+			"id": "imageCard",
+			"type": "image",
+			"initial": false,
+			"expected_msg": "",
+			"template": {
+			  "image_url": "",
+			  "image_id": "1746931029114090"
+			}
+		  },
+		  "couponCard": {
+			"id": "couponCard",
+			"type": "coupon",
+			"initial": false,
+			"expected_msg": "",
+			"template": {
+			  "title": "here is our unqiue promotinal coupon",
+			  "subtitle": "10% off limit 1 per customer",
+			  "code": "10FF",
+			  "key": "10FF"
+			}
+		  }
+		},
+		"relationships": [
+		  {
+			"source_card_id": "buttonCard1",
+			"target_card_id": "imageCard",
+			"relationship_type": "button_to_image",
+			"additional_details": "Option 1 selected"
+		  },
+		  {
+			"source_card_id": "buttonCard1",
+			"target_card_id": "couponCard",
+			"relationship_type": "button_to_coupon",
+			"additional_details": "Option 2 selected"
+		  }
+		]
+	  }`
+
+	var flow Flow
+	err := json.Unmarshal([]byte(mock), &flow)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+
+	botFlow, err := MessageFlowBuilder(&flow)
+
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+
+	return botFlow
+
 }

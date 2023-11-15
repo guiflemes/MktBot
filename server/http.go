@@ -27,6 +27,7 @@ func RunHttpServer(addr string) {
 	apiV1.Post("/facebook/upload", fbApp.HandleUploadImage)
 
 	apiV1.Get("/dash/clicks", dashApp.HandleClickCount)
+	apiV1.Get("/dash/revels", dashApp.HandleCouponRevelCount)
 
 	log.Println("Starting HTTP server", addr)
 	app.Listen(addr)
