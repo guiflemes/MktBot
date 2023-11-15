@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	fb "marketingBot/fb/handlers"
 	"os"
@@ -13,7 +14,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
-func RunHttpServer(addr string) {
+func RunHttpServer(port string) {
+
+	if port == "" {
+		log.Fatal("post must be set")
+	}
+
 	app := fiber.New()
 	setMiddlewares(app)
 
@@ -29,8 +35,8 @@ func RunHttpServer(addr string) {
 	apiV1.Get("/dash/clicks", dashApp.HandleClickCount)
 	apiV1.Get("/dash/revels", dashApp.HandleCouponRevelCount)
 
-	log.Println("Starting HTTP server", addr)
-	app.Listen(addr)
+	log.Println("Starting HTTP server", port)
+	app.Listen(fmt.Sprintf(":%s", port))
 
 }
 
