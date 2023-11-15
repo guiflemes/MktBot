@@ -162,19 +162,51 @@ func (s *SimpleMessageUC) handleMessage(sender models.Sender, msg *models.Messag
 
 }
 
-type HandlePostback struct {
+type TemplateHandler struct {
+	templateAction []func(recipientID string, template *models.MessagingTemplate)
+}
+
+func (h *TemplateHandler) Handler(sender models.Sender, temp *models.MessagingTemplate) {
+	for _, fn := range h.templateAction {
+		go fn(sender.ID, temp)
+	}
+}
+
+type MessageHandler struct {
+	messageFlow *MessageFlow
+	graphApi    GraphApiClient
+}
+
+func (h *MessageHandler) Handle(sender models.Sender, msg *models.Message) error {
+	if h.messageFlow == nil {
+		return errors.New("messageFlow cannot be nil")
+	}
+
+	msgText := strings.TrimSpace(msg.Text)
+	msgRequest, err := h.messageFlow.Buid(sender, msgText)
+
+	if err != nil {
+		log.Println("error building flow ", err)
+		return fmt.Errorf("error building flow: %w", err)
+	}
+
+	return h.graphApi.SendRespose(msgRequest)
+
+}
+
+type PostbackHandler struct {
 	postbackAction []func(recipientID string, postback PostBackMetric)
 	postbackFlow   *MessageFlow
 	graphApi       GraphApiClient
 }
 
-func (h *HandlePostback) executePosbackAction(sender models.Sender, postback PostBackMetric) {
+func (h *PostbackHandler) executePosbackAction(sender models.Sender, postback PostBackMetric) {
 	for _, fn := range h.postbackAction {
 		go fn(sender.ID, postback)
 	}
 }
 
-func (h *HandlePostback) Handle(sender models.Sender, postbackReq *models.Postback) error {
+func (h *PostbackHandler) Handle(sender models.Sender, postbackReq *models.Postback) error {
 	if h.postbackFlow == nil {
 		return errors.New("postbackFlow cannot be nil")
 	}
