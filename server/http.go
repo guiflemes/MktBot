@@ -17,7 +17,7 @@ import (
 func RunHttpServer(port string) {
 
 	if port == "" {
-		log.Fatal("post must be set")
+		log.Fatal("port must be set")
 	}
 
 	app := fiber.New()
