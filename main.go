@@ -15,5 +15,7 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	server.RunHttpServer(os.Getenv("PORT"))
+	var portNumber = os.Getenv("PORT")
+
+	server.RunHttpServer(portNumber)
 }
