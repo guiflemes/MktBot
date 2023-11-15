@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"marketingBot/server"
-	"marketingBot/settings"
+	"os"
 
 	"github.com/joho/godotenv"
 )
@@ -15,5 +15,5 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	server.RunHttpServer(settings.GETENV("PORT"))
+	server.RunHttpServer(os.Getenv("PORT"))
 }
