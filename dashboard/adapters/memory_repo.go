@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"fmt"
+	"marketingBot/dashboard/flow"
 	"strings"
 	"sync"
 )
@@ -125,4 +126,36 @@ func (repo *statisticsRepoMemory) GetClickCount(plataform, questionKey, optionKe
 	}
 
 	return len(distinct)
+}
+
+var MemoryFlowRepo = NewFlowRepo()
+
+type flowRepo struct {
+	flows map[string]*flow.Flow
+	lock  sync.Mutex
+}
+
+func NewFlowRepo() *flowRepo {
+	return &flowRepo{
+		flows: make(map[string]*flow.Flow),
+	}
+}
+
+func (r *flowRepo) Save(f *flow.Flow) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.flows[f.Key] = f
+	return nil
+}
+
+func (r *flowRepo) Get(key string) *flow.Flow {
+	fmt.Println(r.flows)
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	f, ok := r.flows[key]
+	if !ok {
+		return nil
+	}
+
+	return f
 }

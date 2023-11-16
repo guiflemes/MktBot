@@ -13,6 +13,10 @@ type DirectHandler struct {
 	graphApi    GraphApiClientResponse
 }
 
+func (h *DirectHandler) SetFlow(messageFlow *MessageFlow) {
+	h.messageFlow = messageFlow
+}
+
 func (h *DirectHandler) Handle(sender models.Sender, msg *models.Message) error {
 	if h.messageFlow == nil {
 		return errors.New("messageFlow cannot be nil")

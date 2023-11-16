@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"marketingBot/dashboard/flow"
 	"marketingBot/fb/models"
 	"regexp"
 	"sync"
@@ -84,66 +85,19 @@ func (s *MessageFlow) Buid(sender models.Sender, inputMsg string) (models.SendMe
 	}, nil
 }
 
-type ButtonOption struct {
-	Text         string `json:"text"`
-	Key          string `json:"key"`
-	TargetCardID string `json:"target_card_id"`
-}
-
-type ButtonTemplate struct {
-	Text    string         `json:"text"`
-	Key     string         `json:"key"`
-	Options []ButtonOption `json:"options"`
-}
-
-type ImageTemplate struct {
-	ImageURL string `json:"image_url,omitempty"`
-	ImageID  string `json:"image_id,omitempty"`
-}
-
-type CouponTemplate struct {
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle"`
-	Code     string `json:"code"`
-	Key      string `json:"key"`
-}
-
-type Card struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	Initial     bool   `json:"initial"`
-	ExpectedMsg string `json:"expected_msg"`
-	Template    any    `json:"template"`
-}
-
-type Relationship struct {
-	SourceCardID      string `json:"source_card_id"`
-	TargetCardID      string `json:"target_card_id"`
-	RelationshipType  string `json:"relationship_type"`
-	AdditionalDetails string `json:"additional_details"`
-}
-
-type Flow struct {
-	Name          string          `json:"name"`
-	Key           string          `json:"key"`
-	Cards         map[string]Card `json:"cards"`
-	Relationships []Relationship  `json:"relationships"`
-	lock          sync.RWMutex
-}
-
 type BotFlow struct {
 	postbackFlow *MessageFlow
 	directFlow   *MessageFlow
 }
 
-func MessageFlowBuilder(flow *Flow) (*BotFlow, error) {
+func MessageFlowBuilder(flow *flow.Flow) (*BotFlow, error) {
 	msgMaker := NewMessageMaker()
 	msgMaker.SetMaker("button", ButtonMaker)
 	msgMaker.SetMaker("image", ImageMaker)
 	msgMaker.SetMaker("coupon", CouponMaker)
 
-	flow.lock.RLock()
-	defer flow.lock.RUnlock()
+	flow.Lock()
+	defer flow.Unlock()
 
 	postbackFlow := &MessageFlow{flow: make(map[string]func(sender models.Sender) models.Message)}
 	messageFlow := &MessageFlow{flow: make(map[string]func(sender models.Sender) models.Message)}
@@ -200,7 +154,9 @@ func (m *messageMaker) SetMaker(makeType string, maker func(template []byte) (fu
 	m.makers[makeType] = maker
 }
 
-func (m *messageMaker) Make(card Card) (func(models.Sender) models.Message, error) {
+func (m *messageMaker) Make(card flow.Card) (func(models.Sender) models.Message, error) {
+
+	fmt.Println("CARD", card)
 	m.lock.RLock()
 	defer m.lock.RLock()
 
@@ -220,7 +176,7 @@ func (m *messageMaker) Make(card Card) (func(models.Sender) models.Message, erro
 }
 
 func CouponMaker(template []byte) (func(models.Sender) models.Message, error) {
-	var coupon CouponTemplate
+	var coupon flow.CouponTemplate
 
 	if err := json.Unmarshal(template, &coupon); err != nil {
 		return nil, err
@@ -241,7 +197,7 @@ func CouponMaker(template []byte) (func(models.Sender) models.Message, error) {
 }
 
 func ImageMaker(template []byte) (func(models.Sender) models.Message, error) {
-	var image ImageTemplate
+	var image flow.ImageTemplate
 
 	if err := json.Unmarshal(template, &image); err != nil {
 		return nil, err
@@ -264,7 +220,7 @@ func ImageMaker(template []byte) (func(models.Sender) models.Message, error) {
 }
 
 func ButtonMaker(template []byte) (func(models.Sender) models.Message, error) {
-	var button ButtonTemplate
+	var button flow.ButtonTemplate
 
 	if err := json.Unmarshal(template, &button); err != nil {
 		return nil, err
@@ -301,7 +257,7 @@ func ButtonMaker(template []byte) (func(models.Sender) models.Message, error) {
 	}, nil
 }
 
-func SampleBotFlowMock() *BotFlow {
+func SampleBotFlowMock(key string) *BotFlow {
 	mock := `{
 		"name": "SampleFlow",
 		"key": "sample_flow_key",
@@ -359,7 +315,7 @@ func SampleBotFlowMock() *BotFlow {
 		]
 	  }`
 
-	var flow Flow
+	var flow flow.Flow
 	err := json.Unmarshal([]byte(mock), &flow)
 	if err != nil {
 		fmt.Println("Error:", err)

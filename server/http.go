@@ -25,6 +25,7 @@ func RunHttpServer(port string) {
 
 	fbApp := fb.NewFBHttpApp()
 	dashApp := dash.NewdashHttpApp()
+	flowApp := dash.NewFlowApp()
 
 	apiV1 := app.Group("api/v1")
 
@@ -34,6 +35,9 @@ func RunHttpServer(port string) {
 
 	apiV1.Get("/dash/clicks", dashApp.HandleClickCount)
 	apiV1.Get("/dash/revels", dashApp.HandleCouponRevelCount)
+
+	apiV1.Get("/flow/:key", flowApp.HandleGetFLow)
+	apiV1.Post("/flow", flowApp.HandleSaveFlow)
 
 	log.Println("Starting HTTP server", port)
 	app.Listen(fmt.Sprintf(":%s", port))

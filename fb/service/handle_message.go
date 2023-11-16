@@ -14,10 +14,12 @@ import (
 type (
 	HandlerDirectMsg interface {
 		Handle(sender models.Sender, msg *models.Message) error
+		SetFlow(messageFlow *MessageFlow)
 	}
 
 	HandlerPostBackMsg interface {
 		Handle(sender models.Sender, postbackReq *models.Postback) error
+		SetFlow(messageFlow *MessageFlow)
 	}
 
 	HandleTemplateMsg interface {
@@ -37,17 +39,35 @@ type (
 	}
 )
 
+func MemoryGetBotFlow(key string) *BotFlow {
+	repo := dash.MemoryFlowRepo
+	flow := repo.Get(key)
+
+	if flow == nil {
+		return nil
+	}
+
+	fmt.Println(flow.Relationships)
+	f, err := MessageFlowBuilder(flow)
+	if err != nil {
+		log.Println("error building a message flow")
+		return nil
+	}
+
+	return f
+}
+
 type SimpleMessageUC struct {
 	senderCache     SenderCacher
 	graphApi        GraphApiSender
 	templateHandler HandleTemplateMsg
 	postbackHandler HandlerPostBackMsg
 	directHandler   HandlerDirectMsg
+	getBotFlow      func(key string) *BotFlow
 }
 
 func NewSimpleMessageUC() *SimpleMessageUC {
 
-	flow := SampleBotFlowMock()
 	cache := adapters.NewSenderCache()
 	graphAPi := adapters.NewGrapApi()
 
@@ -61,13 +81,12 @@ func NewSimpleMessageUC() *SimpleMessageUC {
 			postbackAction: []func(recipientID string, postback PostBackMetric){
 				collectFbButtonMetrics,
 			},
-			postbackFlow: flow.postbackFlow,
-			graphApi:     graphAPi,
+			graphApi: graphAPi,
 		},
 		directHandler: &DirectHandler{
-			messageFlow: flow.directFlow,
-			graphApi:    graphAPi,
+			graphApi: graphAPi,
 		},
+		getBotFlow: SampleBotFlowMock,
 	}
 }
 
@@ -87,6 +106,15 @@ func (s *SimpleMessageUC) HandleWebHookRequest(r models.WehbookReq) error {
 }
 
 func (s *SimpleMessageUC) handleWebHookRequestEntry(we models.Entry) error {
+
+	flow := s.getBotFlow("sample_flow_key")
+
+	if flow == nil {
+		return fmt.Errorf("bot flow with thje given key '%s' not found", "sample_bot_flow")
+	}
+
+	s.postbackHandler.SetFlow(flow.postbackFlow)
+	s.directHandler.SetFlow(flow.directFlow)
 
 	var err error
 

@@ -20,6 +20,10 @@ func (h *PostbackHandler) executePosbackAction(sender models.Sender, postback Po
 	}
 }
 
+func (h *PostbackHandler) SetFlow(messageFlow *MessageFlow) {
+	h.postbackFlow = messageFlow
+}
+
 func (h *PostbackHandler) Handle(sender models.Sender, postbackReq *models.Postback) error {
 	if h.postbackFlow == nil {
 		return errors.New("postbackFlow cannot be nil")
