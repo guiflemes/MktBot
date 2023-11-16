@@ -9,6 +9,9 @@ import (
 	"time"
 
 	dash "marketingBot/dashboard/adapters"
+	"marketingBot/dashboard/flow"
+
+	"github.com/mitchellh/copystructure"
 )
 
 type (
@@ -41,20 +44,26 @@ type (
 
 func MemoryGetBotFlow(key string) *BotFlow {
 	repo := dash.MemoryFlowRepo
-	flow := repo.Get(key)
+	f := repo.Get(key)
 
-	if flow == nil {
+	if f == nil {
 		return nil
 	}
 
-	fmt.Println(flow.Relationships)
-	f, err := MessageFlowBuilder(flow)
+	copyFlow, err := copystructure.Copy(f)
+
+	if err != nil {
+		log.Println("error copying flow")
+		return nil
+	}
+
+	messageFlow, err := MessageFlowBuilder(copyFlow.(*flow.Flow))
 	if err != nil {
 		log.Println("error building a message flow")
 		return nil
 	}
 
-	return f
+	return messageFlow
 }
 
 type SimpleMessageUC struct {
@@ -86,7 +95,7 @@ func NewSimpleMessageUC() *SimpleMessageUC {
 		directHandler: &DirectHandler{
 			graphApi: graphAPi,
 		},
-		getBotFlow: SampleBotFlowMock,
+		getBotFlow: MemoryGetBotFlow,
 	}
 }
 

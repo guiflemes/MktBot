@@ -51,14 +51,14 @@ func NewFlowApp() *FlowHttpApp {
 }
 
 func (f *FlowHttpApp) HandleSaveFlow(c *fiber.Ctx) error {
-	var fl *flow.Flow
+	var fl flow.Flow
 	err := c.BodyParser(&fl)
 
 	if err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err})
 	}
 
-	err = f.repo.Save(fl)
+	err = f.repo.Save(&fl)
 
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err})

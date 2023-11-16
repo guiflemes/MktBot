@@ -155,8 +155,6 @@ func (m *messageMaker) SetMaker(makeType string, maker func(template []byte) (fu
 }
 
 func (m *messageMaker) Make(card flow.Card) (func(models.Sender) models.Message, error) {
-
-	fmt.Println("CARD", card)
 	m.lock.RLock()
 	defer m.lock.RLock()
 
